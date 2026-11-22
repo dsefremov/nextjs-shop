@@ -31,7 +31,7 @@ export default async function CheckoutPage() {
             {lines.map((l) => (
               <li key={l.product.id} className="flex justify-between gap-3 py-2">
                 <span>
-                  {l.product.name} <span className="text-neutral-400">× {l.quantity}</span>
+                  {l.product.name} <span className="whitespace-nowrap text-neutral-400">× {l.quantity}</span>
                 </span>
                 <span className="whitespace-nowrap">{rub(l.total)}</span>
               </li>
