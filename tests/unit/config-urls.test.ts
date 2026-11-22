@@ -37,8 +37,9 @@ describe("настройки", () => {
   it("явный TEST_DATABASE_URL имеет приоритет; без пароля — trust", () => {
     vi.stubEnv("TEST_DATABASE_URL", "postgresql://postgres@127.0.0.1:5432/nextjs_shop_test");
     expect(databaseUrl("test")).toBe("postgresql://postgres@127.0.0.1:5432/nextjs_shop_test");
-    vi.stubEnv("TEST_DATABASE_URL", "");
-    vi.stubEnv("TEST_DB_PASSWORD", "");
+    for (const key of ["TEST_DATABASE_URL", "TEST_DB_HOST", "TEST_DB_PORT", "TEST_DB_NAME", "TEST_DB_USER", "TEST_DB_PASSWORD"]) {
+      vi.stubEnv(key, "");
+    }
     vi.stubEnv("TEST_DB_PASSWORD_FILE", "/nonexistent");
     expect(databaseUrl("test")).toBe("postgresql://shop@127.0.0.1:54328/nextjs_shop_test");
   });
