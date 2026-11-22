@@ -3,7 +3,7 @@
 # приложение → тестовый PostgreSQL → npm ci на хосте (проверки, Vitest, Playwright). Повторный запуск
 # безопасен (секреты не перезаписываются, миграции идемпотентны, демо-данные загружаются заново).
 # Запуск из корня репозитория: docker/setup.sh  (DC — команда compose, например DC="sudo docker compose").
-# Порты — HTTP_PORT (8108), DB_PORT (54327), TEST_DB_PORT (54328).
+# Порты — HTTP_PORT (8108), DB_PORT (54327), TEST_DB_PORT (54328). BUILD_FLAGS="--no-cache" — сборка без кэша слоёв.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 DC=${DC:-docker compose}
@@ -14,7 +14,7 @@ step "Секреты (var/)"
 docker/secrets.sh
 
 step "Сборка образов (web — next build, standalone; tools — миграции и сид)"
-$DC build web tools
+$DC build ${BUILD_FLAGS:-} web tools
 
 step "PostgreSQL 17"
 $DC up -d --wait db
