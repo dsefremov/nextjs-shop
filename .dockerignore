@@ -1,0 +1,11 @@
+.git
+.next
+node_modules
+src/generated
+var
+test-results
+playwright-report
+blob-report
+docs/screenshots
+*.tsbuildinfo
+.env*
