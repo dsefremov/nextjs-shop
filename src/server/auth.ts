@@ -3,6 +3,7 @@
  * дополнительное поле `role` (customer / manager / admin), которое нельзя передать при регистрации.
  * Секрет — BETTER_AUTH_SECRET(_FILE) или var/secrets/better-auth-secret (docker/secrets.sh).
  */
+import { randomBytes } from "node:crypto";
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { nextCookies } from "better-auth/next-js";
@@ -11,10 +12,24 @@ import { prisma } from "./db";
 
 const baseURL = process.env.BETTER_AUTH_URL ?? "http://127.0.0.1:8108";
 
+/**
+ * Секрет подписи сессий. Во время `next build` модули загружаются для сбора данных страниц, но ни одна
+ * сессия не подписывается, поэтому секрета у сборки нет (его нет ни в образе, ни в CI) — Better Auth
+ * получает одноразовое случайное значение. Во время работы секрет обязателен: без него Better Auth
+ * в production останавливается с ошибкой.
+ */
+function authSecret(): string | undefined {
+  const secret = readSecret("BETTER_AUTH_SECRET", "var/secrets/better-auth-secret");
+  if (!secret && process.env.NEXT_PHASE === "phase-production-build") {
+    return randomBytes(32).toString("hex");
+  }
+  return secret;
+}
+
 export const auth = betterAuth({
   appName: "Next.js Shop",
   baseURL,
-  secret: readSecret("BETTER_AUTH_SECRET", "var/secrets/better-auth-secret"),
+  secret: authSecret(),
   trustedOrigins: [baseURL, baseURL.replace("127.0.0.1", "localhost")],
   database: prismaAdapter(prisma, { provider: "postgresql" }),
   emailAndPassword: {
