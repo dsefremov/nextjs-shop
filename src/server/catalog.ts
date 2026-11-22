@@ -1,6 +1,7 @@
 /** Запросы каталога: категории, список товаров с поиском, фильтрами, сортировкой и пагинацией. */
 import type { Prisma } from "@/generated/prisma/client";
 import type { CatalogFilters, CatalogSort } from "@/lib/filters";
+import { likeLiteral } from "@/lib/like";
 import { prisma } from "./db";
 
 export const CATALOG_PAGE_SIZE = 12;
@@ -30,9 +31,10 @@ export function catalogWhere(filters: CatalogFilters, categoryId?: number): Pris
     where.categoryId = categoryId;
   }
   if (filters.q) {
+    const q = likeLiteral(filters.q);
     where.OR = [
-      { name: { contains: filters.q, mode: "insensitive" } },
-      { description: { contains: filters.q, mode: "insensitive" } },
+      { name: { contains: q, mode: "insensitive" } },
+      { description: { contains: q, mode: "insensitive" } },
     ];
   }
   if (filters.priceMin !== undefined || filters.priceMax !== undefined) {

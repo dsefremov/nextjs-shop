@@ -6,6 +6,7 @@ import { z } from "zod";
 import { Prisma } from "@/generated/prisma/client";
 import type { AdminProductFilters, AdminProductSort } from "@/lib/filters";
 import { parseRubles } from "@/lib/money";
+import { likeLiteral } from "@/lib/like";
 import { makeSlug } from "@/lib/slug";
 import { prisma } from "./db";
 import { ADMIN_PAGE_SIZE } from "./order-queries";
@@ -135,9 +136,10 @@ const PRODUCT_SORT: Record<AdminProductSort, Prisma.ProductOrderByWithRelationIn
 export function adminProductWhere(filters: AdminProductFilters): Prisma.ProductWhereInput {
   const where: Prisma.ProductWhereInput = {};
   if (filters.q) {
+    const q = likeLiteral(filters.q);
     where.OR = [
-      { name: { contains: filters.q, mode: "insensitive" } },
-      { slug: { contains: filters.q, mode: "insensitive" } },
+      { name: { contains: q, mode: "insensitive" } },
+      { slug: { contains: q, mode: "insensitive" } },
     ];
   }
   if (filters.categoryId !== undefined) {

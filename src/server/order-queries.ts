@@ -2,6 +2,7 @@
 import type { Prisma } from "@/generated/prisma/client";
 import type { OrderFilters, OrderSort } from "@/lib/filters";
 import { moscowDayStart } from "@/lib/format";
+import { likeLiteral } from "@/lib/like";
 import { prisma } from "./db";
 
 export const ORDERS_PAGE_SIZE = 10;
@@ -23,13 +24,14 @@ export function orderWhere(filters: OrderFilters, options: { userId?: string; se
   }
   const q = filters.q?.replace(/^[№#\s]+/, "").trim();
   if (q) {
-    const or: Prisma.OrderWhereInput[] = [{ items: { some: { productName: { contains: q, mode: "insensitive" } } } }];
+    const like = likeLiteral(q);
+    const or: Prisma.OrderWhereInput[] = [{ items: { some: { productName: { contains: like, mode: "insensitive" } } } }];
     if (/^\d{1,9}$/.test(q)) {
       or.push({ id: Number(q) });
     }
     if (options.searchCustomer) {
-      or.push({ customerName: { contains: q, mode: "insensitive" } });
-      or.push({ customerEmail: { contains: q, mode: "insensitive" } });
+      or.push({ customerName: { contains: like, mode: "insensitive" } });
+      or.push({ customerEmail: { contains: like, mode: "insensitive" } });
     }
     and.push({ OR: or });
   }
