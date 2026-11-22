@@ -21,9 +21,9 @@ export function readSecret(name: string, fallbackFile?: string): string | undefi
 
 export type DatabaseTarget = "app" | "test";
 
-const DEFAULTS: Record<DatabaseTarget, { prefix: string; port: string; name: string; secret: string }> = {
-  app: { prefix: "DB", port: "54327", name: "nextjs_shop", secret: "var/secrets/db-password" },
-  test: { prefix: "TEST_DB", port: "54328", name: "nextjs_shop_test", secret: "var/secrets/test-db-password" },
+const DEFAULTS: Record<DatabaseTarget, { prefix: string; port: string; name: string; passwordFile: string }> = {
+  app: { prefix: "DB", port: "54327", name: "nextjs_shop", passwordFile: "var/secrets/db-password" },
+  test: { prefix: "TEST_DB", port: "54328", name: "nextjs_shop_test", passwordFile: "var/secrets/test-db-password" },
 };
 
 /**
@@ -39,7 +39,7 @@ export function databaseUrl(target: DatabaseTarget = "app"): string {
   const d = DEFAULTS[target];
   const env = (key: string, fallback: string) => process.env[`${d.prefix}_${key}`] || fallback;
   const user = encodeURIComponent(env("USER", "shop"));
-  const password = readSecret(`${d.prefix}_PASSWORD`, d.secret);
+  const password = readSecret(`${d.prefix}_PASSWORD`, d.passwordFile);
   const auth = password ? `${user}:${encodeURIComponent(password)}` : user;
   return `postgresql://${auth}@${env("HOST", "127.0.0.1")}:${env("PORT", d.port)}/${env("NAME", d.name)}`;
 }
