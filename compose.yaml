@@ -1,0 +1,123 @@
+# Локальный стенд nextjs-shop: PostgreSQL 17, приложение Next.js (standalone-сервер Node 24),
+# тестовый PostgreSQL для Vitest (tmpfs) и одноразовый контейнер tools (миграции и демо-данные).
+# Пароли — только Docker secrets из var/ (docker/secrets.sh), в YAML нет ни одного значения.
+# Порты по умолчанию не пересекаются с django-shop (8098 / 8099 / 54317 / 54318).
+# Все сервисы — в network_mode: host (как в django-shop): на этом хосте трафик между контейнерами
+# bridge-сети не ходит; каждый сервис слушает только 127.0.0.1 на своём порту.
+name: nextjs-shop
+
+x-app-env: &app-env
+  DB_HOST: 127.0.0.1
+  DB_PORT: ${DB_PORT:-54327}
+  DB_NAME: nextjs_shop
+  DB_USER: shop
+  DB_PASSWORD_FILE: /run/secrets/db-password
+  BETTER_AUTH_SECRET_FILE: /run/secrets/better-auth-secret
+  BETTER_AUTH_URL: http://127.0.0.1:${HTTP_PORT:-8108}
+  MEDIA_ROOT: /app/var/media
+  NEXT_TELEMETRY_DISABLED: "1"
+
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: nextjs_shop
+      POSTGRES_USER: shop
+      POSTGRES_PASSWORD_FILE: /run/secrets/db-password
+    secrets: [db-password]
+    network_mode: host
+    command: ["postgres", "-c", "listen_addresses=127.0.0.1", "-c", "port=${DB_PORT:-54327}"]
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p ${DB_PORT:-54327} -U shop -d nextjs_shop"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  test-db:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: nextjs_shop_test
+      POSTGRES_USER: shop
+      POSTGRES_PASSWORD_FILE: /run/secrets/test-db-password
+    secrets: [test-db-password]
+    network_mode: host
+    command:
+      - postgres
+      - -c
+      - listen_addresses=127.0.0.1
+      - -c
+      - port=${TEST_DB_PORT:-54328}
+      - -c
+      - fsync=off
+      - -c
+      - synchronous_commit=off
+      - -c
+      - full_page_writes=off
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p ${TEST_DB_PORT:-54328} -U shop -d nextjs_shop_test"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  web:
+    build:
+      context: .
+      target: runner
+    image: nextjs-shop-web
+    user: "${UID:-1000}:${GID:-1000}"
+    environment:
+      <<: *app-env
+      PORT: ${HTTP_PORT:-8108}
+      HOSTNAME: 127.0.0.1
+    secrets: [db-password, better-auth-secret]
+    network_mode: host
+    volumes:
+      - ./var/media:/app/var/media
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:'+process.env.PORT+'/api/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 3s
+      timeout: 5s
+      retries: 40
+
+  # Миграции и демо-данные: docker compose run --rm tools npx prisma migrate deploy / npm run db:seed
+  tools:
+    build:
+      context: .
+      target: tools
+    image: nextjs-shop-tools
+    profiles: [tools]
+    user: "${UID:-1000}:${GID:-1000}"
+    environment:
+      <<: *app-env
+      ADMIN_PASSWORD_FILE: /run/secrets/admin-password
+      DEMO_USERS_FILE: /run/secrets/demo-users
+      HOME: /tmp
+    secrets: [db-password, better-auth-secret, admin-password, demo-users]
+    network_mode: host
+    volumes:
+      - ./var/media:/app/var/media
+    depends_on:
+      db:
+        condition: service_healthy
+
+secrets:
+  db-password:
+    file: ./var/secrets/db-password
+  test-db-password:
+    file: ./var/secrets/test-db-password
+  better-auth-secret:
+    file: ./var/secrets/better-auth-secret
+  admin-password:
+    file: ./var/admin-password
+  demo-users:
+    file: ./var/demo-users.json
+
+volumes:
+  db-data:

@@ -1,0 +1,215 @@
+// Схема БД nextjs-shop (PostgreSQL 17). Таблицы user / session / account / verification —
+// по схеме Better Auth (адаптер Prisma), остальное — магазин. Деньги — целые копейки (Int).
+// CHECK-ограничения (цена > 0, остаток ≥ 0, количество > 0) дописаны SQL в миграции.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------- Better Auth
+
+model User {
+  id            String    @id
+  name          String
+  email         String    @unique
+  emailVerified Boolean   @default(false)
+  image         String?
+  /// customer — покупатель, manager — менеджер магазина (/admin), admin — администратор (/admin + пользователи)
+  role          String    @default("customer")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  sessions      Session[]
+  accounts      Account[]
+  orders        Order[]
+  cart          Cart?
+
+  @@map("user")
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([userId])
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verification")
+}
+
+// ---------------------------------------------------------------- Каталог
+
+model Category {
+  id          Int       @id @default(autoincrement())
+  name        String    @unique @db.VarChar(120)
+  slug        String    @unique @db.VarChar(140)
+  description String    @default("")
+  image       String?
+  position    Int       @default(100)
+  createdAt   DateTime  @default(now())
+  products    Product[]
+
+  @@map("category")
+}
+
+model Product {
+  id          Int      @id @default(autoincrement())
+  categoryId  Int
+  category    Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  name        String   @db.VarChar(200)
+  slug        String   @unique @db.VarChar(220)
+  description String   @default("")
+  /// цена в копейках
+  price       Int
+  stock       Int      @default(0)
+  image       String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  cartItems   CartItem[]
+  orderItems  OrderItem[]
+
+  @@index([categoryId])
+  @@index([price])
+  @@index([name])
+  @@index([createdAt])
+  @@map("product")
+}
+
+// ---------------------------------------------------------------- Корзина
+
+/// Корзина гостя (id — в httpOnly-куке) или вошедшего покупателя (userId).
+model Cart {
+  id        String     @id @default(uuid())
+  userId    String?    @unique
+  user      User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  items     CartItem[]
+
+  @@map("cart")
+}
+
+model CartItem {
+  cartId    String
+  cart      Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  productId Int
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  quantity  Int
+  createdAt DateTime @default(now())
+
+  @@id([cartId, productId])
+  @@map("cart_item")
+}
+
+// ---------------------------------------------------------------- Заказы
+
+enum OrderStatus {
+  new
+  paid
+  payment_declined
+  processing
+  completed
+  cancelled
+
+  @@map("order_status")
+}
+
+model Order {
+  id              Int              @id @default(autoincrement())
+  userId          String
+  user            User             @relation(fields: [userId], references: [id], onDelete: Restrict)
+  status          OrderStatus      @default(new)
+  /// сумма в копейках
+  total           Int
+  customerName    String           @db.VarChar(150)
+  customerEmail   String           @db.VarChar(254)
+  customerPhone   String           @db.VarChar(32)
+  address         String           @db.VarChar(255)
+  comment         String           @default("")
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  paidAt          DateTime?
+  /// ставится один раз при отмене — остаток возвращается ровно один раз
+  stockReturnedAt DateTime?
+  items           OrderItem[]
+  paymentAttempts PaymentAttempt[]
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("order")
+}
+
+/// Позиция заказа со снимком названия и цены на момент оформления.
+model OrderItem {
+  id          Int      @id @default(autoincrement())
+  orderId     Int
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId   Int?
+  product     Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productName String   @db.VarChar(200)
+  /// цена в копейках
+  price       Int
+  quantity    Int
+
+  @@index([orderId])
+  @@map("order_item")
+}
+
+/// История оплаты: каждая попытка (успешная или отклонённая) — отдельная запись.
+model PaymentAttempt {
+  id        Int      @id @default(autoincrement())
+  orderId   Int
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  succeeded Boolean
+  /// сумма в копейках
+  amount    Int
+  reference String   @db.VarChar(64)
+  message   String   @db.VarChar(255)
+  createdAt DateTime @default(now())
+
+  @@index([orderId])
+  @@map("payment_attempt")
+}

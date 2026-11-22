@@ -1,0 +1,88 @@
+# Единственный workflow проекта. Запускается ТОЛЬКО на pull_request
+# (никаких push / workflow_dispatch / schedule). Один job — один прогон на событие PR.
+# Статические проверки (ESLint, TypeScript, prisma validate, gitleaks), next build и Vitest
+# (unit + тесты на PostgreSQL 17 в service-контейнере).
+# Playwright (e2e и скриншоты) в CI не запускается — только локально, см. docs/testing.md.
+name: ci
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Static checks + build + Vitest (PostgreSQL 17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: nextjs_shop_test
+          POSTGRES_USER: shop
+          # Без пароля: одноразовый контейнер CI доступен только job'у.
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U shop -d nextjs_shop_test"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+
+    env:
+      TEST_DB_HOST: 127.0.0.1
+      TEST_DB_PORT: '5432'
+      NEXT_TELEMETRY_DISABLED: '1'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # gitleaks проверяет всю историю
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: No secrets, var/ or .env in the repository
+        run: docker/check-repo.sh
+
+      - name: gitleaks (full history)
+        env:
+          GITLEAKS_VERSION: 8.28.0
+          GITLEAKS_SHA256: a65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb
+        run: |
+          curl -sSfL -o /tmp/gitleaks.tgz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  /tmp/gitleaks.tgz" | sha256sum -c -
+          tar -xzf /tmp/gitleaks.tgz -C /tmp gitleaks
+          /tmp/gitleaks detect --source . --redact --no-banner --exit-code 1
+
+      - name: Install dependencies (npm ci, prisma generate)
+        run: npm ci --no-audit --no-fund
+
+      - name: ESLint
+        run: npm run lint
+
+      - name: TypeScript
+        run: npm run typecheck
+
+      - name: prisma validate
+        run: npm run prisma:validate
+
+      - name: next build
+        run: npm run build
+
+      - name: Vitest — unit
+        run: npm run test:unit
+
+      - name: Vitest — PostgreSQL 17 (migrations, checkout, payments, actions)
+        run: npm run test:db
