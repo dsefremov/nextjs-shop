@@ -1,10 +1,18 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { prisma } from "@/server/db";
 import { CATALOG, type Credentials, loadCredentials, loadDemo, USERS } from "@/server/demo/demo";
 import { mediaRoot } from "@/server/media";
 import { randomPassword } from "../support/factories";
+
+// Тест проверяет, что loadDemo сохраняет картинки в MEDIA_ROOT, а не скорость генерации
+// 800px PNG (её покрывают unit-тесты seed-image). Поэтому здесь генератор настоящий,
+// но картинки маленькие: 28 файлов (4 категории и 24 товара) по 32px вместо 400–800px, и тест не зависит от CPU раннера.
+vi.mock("@/server/demo/seed-image", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/server/demo/seed-image")>();
+  return { ...actual, makePng: (...args: Parameters<typeof actual.makePng>) => actual.makePng(args[0], args[1], 32) };
+});
 
 function credentials(): Credentials {
   return Object.fromEntries(USERS.map(([key]) => [key, { email: `${key}@demo.test`, password: randomPassword() }])) as Credentials;
@@ -51,6 +59,8 @@ describe("демо-данные", () => {
     const p = await prisma.product.findFirstOrThrow({ where: { id: 1 } });
     expect(p.image).toMatch(/^products\/.+\.png$/);
     expect(existsSync(join(mediaRoot(), p.image!))).toBe(true);
+    const withImage = await prisma.product.count({ where: { image: { not: null } } });
+    expect(withImage).toBe(24);
   });
 
   it("без файла учёток — понятная ошибка", () => {
